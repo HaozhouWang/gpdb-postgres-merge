@@ -742,6 +742,61 @@ PLyObject_ToBytea(PLyObToDatum *arg, int32 typmod, PyObject *plrv, bool inarray)
 	return rv;
 }
 
+/*
+ * Convert Python object to C string in server encoding.
+ */
+char *
+PLyObject_AsString(PyObject *plrv)
+{
+	PyObject   *plrv_bo;
+	char	   *plrv_sc;
+	size_t		plen;
+	size_t		slen;
+
+	if (PyUnicode_Check(plrv))
+		plrv_bo = PLyUnicode_Bytes(plrv);
+	else if (PyFloat_Check(plrv))
+	{
+		/* use repr() for floats, str() is lossy */
+#if PY_MAJOR_VERSION >= 3
+		PyObject   *s = PyObject_Repr(plrv);
+
+		plrv_bo = PLyUnicode_Bytes(s);
+		Py_XDECREF(s);
+#else
+		plrv_bo = PyObject_Repr(plrv);
+#endif
+	}
+	else
+	{
+#if PY_MAJOR_VERSION >= 3
+		PyObject   *s = PyObject_Str(plrv);
+
+		plrv_bo = PLyUnicode_Bytes(s);
+		Py_XDECREF(s);
+#else
+		plrv_bo = PyObject_Str(plrv);
+#endif
+	}
+	if (!plrv_bo)
+		PLy_elog(ERROR, "could not create string representation of Python object");
+
+	plrv_sc = pstrdup(PyBytes_AsString(plrv_bo));
+	plen = PyBytes_Size(plrv_bo);
+	slen = strlen(plrv_sc);
+
+	Py_XDECREF(plrv_bo);
+
+	if (slen < plen)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATATYPE_MISMATCH),
+				 errmsg("could not convert Python object into cstring: Python string representation appears to contain null bytes")));
+	else if (slen > plen)
+		elog(ERROR, "could not convert Python object into cstring: Python string longer than reported length");
+	pg_verifymbstr(plrv_sc, slen, false);
+
+	return plrv_sc;
+}
 
 /*
  * Convert a Python object to a composite type. First look up the type's
@@ -772,7 +827,7 @@ PLyObject_ToComposite(PLyObToDatum *arg, int32 typmod, PyObject *plrv, bool inar
 	 * that info instead of looking it up every time a tuple is returned from
 	 * the function.
 	 */
-	rv = PLyObject_ToCompositeDatum(&info, desc, plrv);
+	rv = PLyObject_ToCompositeDatum(&info, desc, plrv, inarray);
 
 	PLy_typeinfo_dealloc(&info);
 
@@ -1060,7 +1115,7 @@ PLyMapping_ToComposite(PLyTypeInfo *info, TupleDesc desc, PyObject *mapping)
 			}
 			else if (value)
 			{
-				values[i] = (att->func) (att, -1, value);
+				values[i] = (att->func) (att, -1, value, false);
 				nulls[i] = false;
 			}
 			else
