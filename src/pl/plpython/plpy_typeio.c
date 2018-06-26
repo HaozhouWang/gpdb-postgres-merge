@@ -407,11 +407,7 @@ PLy_output_datum_func2(PLyObToDatum *arg, HeapTuple typeTup)
 		Oid			funcid;
 
 		if (type_is_rowtype(element_type))
-			ereport(ERROR,
-					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("PL/Python functions cannot return type %s",
-							format_type_be(arg->typoid)),
-					 errdetail("PL/Python does not support conversion to arrays of row types.")));
+			arg->func = PLyObject_ToComposite;
 
 		arg->elm = PLy_malloc0(sizeof(*arg->elm));
 		arg->elm->func = arg->func;
