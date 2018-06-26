@@ -53,9 +53,6 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 
 	PG_TRY();
 	{
-
-		pyelog(INFO, "fcinfo->flinfo->fn_retset: %d", fcinfo->flinfo->fn_retset); 
-
 		if (fcinfo->flinfo->fn_retset)
 		{
 			/* First Call setup */
@@ -69,12 +66,10 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 				 * so that this call will have a fresh start 
 				 */ 
 				PyErr_Clear(); 
-				pyelog(INFO, "The funcctx pointer returned by SRF_FIRSTCALL_INIT() is: %p", funcctx); 
 			}
 
 			/* Every call setup */
 			funcctx = SRF_PERCALL_SETUP();
-			pyelog(INFO, "The funcctx pointer returned by SRF_PERCALL_SETUP() is: %p", funcctx); 
 			
 			Assert(funcctx != NULL);
 		}
@@ -91,7 +86,7 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 			{
 				/*
 				 * SETOF function parameters will be deleted when last row is
-				 * returned
+				 * PLySequence_ToTuple
 				 */
 				PLy_function_delete_args(proc);
 			}
@@ -108,7 +103,7 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 			bool		has_error = false;
 			ReturnSetInfo *rsi = (ReturnSetInfo *) fcinfo->resultinfo;
 
-			if (proc->setof == NULL)
+			if (funcctx->user_fctx == NULL)
 			{
 				/* first time -- do checks and setup */
 				if (!rsi || !IsA(rsi, ReturnSetInfo) ||
@@ -122,7 +117,8 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 				rsi->returnMode = SFRM_ValuePerCall;
 
 				/* Make iterator out of returned object */
-				proc->setof = PyObject_GetIter(plrv);
+				funcctx->user_fctx = (void*) PyObject_GetIter(plrv);
+
 				Py_DECREF(plrv);
 				plrv = NULL;
 
@@ -142,6 +138,9 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 			else
 			{
 				rsi->isDone = ExprEndResult;
+
+				PyObject * perr = PyErr_Occurred(); 
+
 				has_error = PyErr_Occurred() != NULL;
 			}
 
@@ -206,7 +205,7 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 									   -1);
 			else
 				/* Tuple as None */
-				rv = (Datum) NULL;
+				rv = (Datum) 0;
 		}
 		else if (proc->result.is_rowtype >= 1)
 		{
