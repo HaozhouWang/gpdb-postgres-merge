@@ -43,14 +43,43 @@ static void PLy_abort_open_subtransactions(int save_subxact_level);
 Datum
 PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 {
-	Datum		rv;
-	PyObject   *volatile plargs = NULL;
-	PyObject   *volatile plrv = NULL;
-	ErrorContextCallback plerrcontext;
+	
+	Datum						rv;
+	FuncCallContext	*volatile	funcctx		   = NULL;
+	PyObject 		*volatile	plargs		   = NULL;
+	PyObject		*volatile	plrv		   = NULL;
+	bool						bFirstTimeCall = false; 
+	ErrorContextCallback		plerrcontext;
 
 	PG_TRY();
 	{
-		if (!proc->is_setof || proc->setof == NULL)
+
+		pyelog(INFO, "fcinfo->flinfo->fn_retset: %d", fcinfo->flinfo->fn_retset); 
+
+		if (fcinfo->flinfo->fn_retset)
+		{
+			/* First Call setup */
+			if (SRF_IS_FIRSTCALL()) 
+			{
+				funcctx = SRF_FIRSTCALL_INIT();
+				bFirstTimeCall = true; 
+
+				/* 
+				 * Clear all previous left-over exceptions due to some (unknow) reasons 
+				 * so that this call will have a fresh start 
+				 */ 
+				PyErr_Clear(); 
+				pyelog(INFO, "The funcctx pointer returned by SRF_FIRSTCALL_INIT() is: %p", funcctx); 
+			}
+
+			/* Every call setup */
+			funcctx = SRF_PERCALL_SETUP();
+			pyelog(INFO, "The funcctx pointer returned by SRF_PERCALL_SETUP() is: %p", funcctx); 
+			
+			Assert(funcctx != NULL);
+		}
+
+		if (!fcinfo->flinfo->fn_retset || bFirstTimeCall)
 		{
 			/*
 			 * Simple type returning function or first time for SETOF
@@ -74,7 +103,7 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 		 * We stay in the SPI context while doing this, because PyIter_Next()
 		 * calls back into Python code which might contain SPI calls.
 		 */
-		if (proc->is_setof)
+		if (fcinfo->flinfo->fn_retset)
 		{
 			bool		has_error = false;
 			ReturnSetInfo *rsi = (ReturnSetInfo *) fcinfo->resultinfo;
@@ -97,12 +126,14 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 				Py_DECREF(plrv);
 				plrv = NULL;
 
-				if (proc->setof == NULL)
+				if (funcctx->user_fctx == NULL)
 					ereport(ERROR,
 							(errcode(ERRCODE_DATATYPE_MISMATCH),
 							 errmsg("returned object cannot be iterated"),
 							 errdetail("PL/Python set-returning functions must return an iterable object.")));
 			}
+
+			pyelog(INFO, "Now ready to call PyIter_Next on %p", funcctx->user_fctx);
 
 			/* Fetch next from iterator */
 			plrv = PyIter_Next(proc->setof);
@@ -117,8 +148,8 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 			if (rsi->isDone == ExprEndResult)
 			{
 				/* Iterator is exhausted or error happened */
-				Py_DECREF(proc->setof);
-				proc->setof = NULL;
+				Py_DECREF( (PyObject*) funcctx->user_fctx); 
+				funcctx->user_fctx = NULL; 
 
 				Py_XDECREF(plargs);
 				Py_XDECREF(plrv);
@@ -126,14 +157,13 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 				PLy_function_delete_args(proc);
 
 				if (has_error)
-					PLy_elog(ERROR, "error fetching next item from iterator");
+					PLy_elog(ERROR, "function \"%s\" error fetching next item from iterator", proc->proname);
 
 				/* Disconnect from the SPI manager before returning */
 				if (SPI_finish() != SPI_OK_FINISH)
 					elog(ERROR, "SPI_finish failed");
 
-				fcinfo->isnull = true;
-				return (Datum) NULL;
+				SRF_RETURN_DONE(funcctx);
 			}
 		}
 
@@ -216,8 +246,6 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 			Py_XDECREF( (PyObject*) funcctx->user_fctx ); 
 			funcctx->user_fctx = NULL; 
 		}
-		Py_XDECREF(proc->setof);
-		proc->setof = NULL;
 
 		PG_RE_THROW();
 	}
@@ -228,7 +256,10 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 	Py_XDECREF(plargs);
 	Py_DECREF(plrv);
 
-	return rv;
+	if (fcinfo->flinfo->fn_retset)
+		SRF_RETURN_NEXT(funcctx, rv);
+	else
+		return rv;
 }
 
 /* trigger subhandler
