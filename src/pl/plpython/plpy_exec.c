@@ -191,13 +191,13 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 			desc = lookup_rowtype_tupdesc(proc->result.out.d.typoid,
 										  proc->result.out.d.typmod);
 
-			rv = PLyObject_ToCompositeDatum(&proc->result, desc, plrv);
+			rv = PLyObject_ToCompositeDatum(&proc->result, desc, plrv, false);
 			fcinfo->isnull = (rv == (Datum) NULL);
 		}
 		else
 		{
 			fcinfo->isnull = false;
-			rv = (proc->result.out.d.func) (&proc->result.out.d, -1, plrv);
+			rv = (proc->result.out.d.func) (&proc->result.out.d, -1, plrv, false);
 		}
 	}
 	PG_CATCH();
@@ -717,7 +717,8 @@ PLy_modify_tuple(PLyProcedure *proc, PyObject *pltd, TriggerData *tdata,
 
 				modvalues[i] = (att->func) (att,
 											tupdesc->attrs[atti]->atttypmod,
-											plval);
+											plval,
+											false);
 				modnulls[i] = ' ';
 			}
 			else
