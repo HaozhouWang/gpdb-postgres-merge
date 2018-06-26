@@ -210,6 +210,12 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 		 * yet. Set it to NULL so the next invocation of the function will
 		 * start the iteration again.
 		 */
+
+		if (fcinfo->flinfo->fn_retset && funcctx->user_fctx != NULL) 
+		{
+			Py_XDECREF( (PyObject*) funcctx->user_fctx ); 
+			funcctx->user_fctx = NULL; 
+		}
 		Py_XDECREF(proc->setof);
 		proc->setof = NULL;
 
