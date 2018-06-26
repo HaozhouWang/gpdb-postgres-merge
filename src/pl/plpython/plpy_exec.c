@@ -129,8 +129,6 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 							 errdetail("PL/Python set-returning functions must return an iterable object.")));
 			}
 
-			pyelog(INFO, "Now ready to call PyIter_Next on %p", funcctx->user_fctx);
-
 			/* Fetch next from iterator */
 			plrv = PyIter_Next(proc->setof);
 			if (plrv)
@@ -138,8 +136,6 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 			else
 			{
 				rsi->isDone = ExprEndResult;
-
-				PyObject * perr = PyErr_Occurred(); 
 
 				has_error = PyErr_Occurred() != NULL;
 			}
