@@ -350,7 +350,7 @@ PLyObject_ToCompositeDatum(PLyTypeInfo *info, TupleDesc desc, PyObject *plrv, bo
 	Datum		datum;
 
 	if (PyString_Check(plrv) || PyUnicode_Check(plrv))
-		datum = PLyString_ToComposite(info, desc, plrv);
+		datum = PLyString_ToComposite(info, desc, plrv, inarray);
 	else if (PySequence_Check(plrv))
 		/* composite type as sequence (tuple, list etc) */
 		datum = PLySequence_ToComposite(info, desc, plrv);
@@ -359,7 +359,7 @@ PLyObject_ToCompositeDatum(PLyTypeInfo *info, TupleDesc desc, PyObject *plrv, bo
 		datum = PLyMapping_ToComposite(info, desc, plrv);
 	else
 		/* returned as smth, must provide method __getattr__(name) */
-		datum = PLyGenericObject_ToComposite(info, desc, plrv);
+		datum = PLyGenericObject_ToComposite(info, desc, plrv, inarray);
 
 	return datum;
 }
@@ -754,17 +754,13 @@ PLyObject_ToComposite(PLyObToDatum *arg, int32 typmod, PyObject *plrv, bool inar
 	Datum		rv;
 	PLyTypeInfo info;
 	TupleDesc	desc;
-	MemoryContext cxt;
 
 	if (typmod != -1)
 		elog(ERROR, "received unnamed record type as input");
 
 	/* Create a dummy PLyTypeInfo */
-	cxt = AllocSetContextCreate(CurrentMemoryContext,
-								"PL/Python temp context",
-								ALLOCSET_DEFAULT_SIZES);
 	MemSet(&info, 0, sizeof(PLyTypeInfo));
-	PLy_typeinfo_init(&info, cxt);
+	PLy_typeinfo_init(&info);
 	/* Mark it as needing output routines lookup */
 	info.is_rowtype = 2;
 
@@ -776,11 +772,9 @@ PLyObject_ToComposite(PLyObToDatum *arg, int32 typmod, PyObject *plrv, bool inar
 	 * that info instead of looking it up every time a tuple is returned from
 	 * the function.
 	 */
-	rv = PLyObject_ToCompositeDatum(&info, desc, plrv, inarray);
+	rv = PLyObject_ToCompositeDatum(&info, desc, plrv);
 
-	ReleaseTupleDesc(desc);
-
-	MemoryContextDelete(cxt);
+	PLy_typeinfo_dealloc(&info);
 
 	return rv;
 }
@@ -1019,7 +1013,7 @@ PLyString_ToComposite(PLyTypeInfo *info, TupleDesc desc, PyObject *string, bool 
 	ReleaseSysCache(typeTup);
 	ReleaseTupleDesc(desc);
 
-	return PLyObject_ToDatum(&info->out.d, info->out.d.typmod, string);
+	return PLyObject_ToDatum(&info->out.d, info->out.d.typmod, string, inarray);
 }
 
 
