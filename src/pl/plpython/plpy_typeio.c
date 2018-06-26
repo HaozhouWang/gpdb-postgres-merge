@@ -1205,7 +1205,7 @@ PLySequence_ToComposite(PLyTypeInfo *info, TupleDesc desc, PyObject *sequence)
 			}
 			else if (value)
 			{
-				values[i] = (att->func) (att, -1, value);
+				values[i] = (att->func) (att, -1, value, false);
 				nulls[i] = false;
 			}
 
