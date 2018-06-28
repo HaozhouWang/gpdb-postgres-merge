@@ -130,7 +130,7 @@ PLy_exec_function(FunctionCallInfo fcinfo, PLyProcedure *proc)
 			}
 
 			/* Fetch next from iterator */
-			plrv = PyIter_Next(proc->setof);
+			plrv = PyIter_Next((PyObject*) funcctx->user_fctx);
 			if (plrv)
 				rsi->isDone = ExprMultipleResult;
 			else

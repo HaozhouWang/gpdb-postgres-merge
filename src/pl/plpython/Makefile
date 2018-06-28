@@ -111,7 +111,7 @@ REGRESS = \
 	plpython_composite \
 	plpython_subtransaction \
 	plpython_returns \
-#	plpython_gpdb \
+	plpython_gpdb \
 	plpython_drop
 
 # where to find psql for running the tests

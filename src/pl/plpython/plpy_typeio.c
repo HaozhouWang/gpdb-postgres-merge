@@ -823,7 +823,7 @@ PLyObject_ToComposite(PLyObToDatum *arg, int32 typmod, PyObject *plrv, bool inar
 	 * that info instead of looking it up every time a tuple is returned from
 	 * the function.
 	 */
-	rv = PLyObject_ToCompositeDatum(&info, desc, plrv, inarray);
+	rv = PLyObject_ToCompositeDatum(&info, desc, plrv, false);
 
 	PLy_typeinfo_dealloc(&info);
 
@@ -1053,18 +1053,29 @@ PLySequence_ToArray_recurse(PLyObToDatum *elm, PyObject *list,
 static Datum
 PLyString_ToComposite(PLyTypeInfo *info, TupleDesc desc, PyObject *string, bool inarray)
 {
+
+	Datum		result;
 	HeapTuple	typeTup;
+	PLyTypeInfo locinfo;
+
+	/* Create a dummy PLyTypeInfo */
+	MemSet(&locinfo, 0, sizeof(PLyTypeInfo));
+	PLy_typeinfo_init(&locinfo);
 
 	typeTup = SearchSysCache1(TYPEOID, ObjectIdGetDatum(desc->tdtypeid));
 	if (!HeapTupleIsValid(typeTup))
 		elog(ERROR, "cache lookup failed for type %u", desc->tdtypeid);
 
-	PLy_output_datum_func2(&info->out.d, typeTup);
+	PLy_output_datum_func2(&locinfo.out.d, typeTup);
 
 	ReleaseSysCache(typeTup);
 	ReleaseTupleDesc(desc);
 
-	return PLyObject_ToDatum(&info->out.d, info->out.d.typmod, string, inarray);
+	result = PLyObject_ToDatum(&locinfo.out.d, desc->tdtypmod, string, inarray);
+
+	PLy_typeinfo_dealloc(&locinfo);
+
+	return result;
 }
 
 
