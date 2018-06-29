@@ -19,6 +19,7 @@
 #include "plpy_resultobject.h"
 #include "plpy_spi.h"
 #include "plpy_subxactobject.h"
+#include "plpy_main.h"
 
 
 HTAB	   *PLy_spi_exceptions = NULL;

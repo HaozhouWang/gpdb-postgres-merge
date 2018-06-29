@@ -4377,17 +4377,17 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 				break;
 
 			case 'k':
-				SetConfigOption("unix_socket_irectory", optarg, ctx, gucsource);
+				SetConfigOption("unix_socket_directory", optarg, ctx, gucsource);
 				break;
 
 			case 'l':
-				SetConfigOption("ssl", "true" ctx, gucsource);
+				SetConfigOption("ssl", "true", ctx, gucsource);
 				break;
 
 			case 'm':
 				/*
 				 * In maintenance mode:
-				 * 	1. allow DML on catalog tble
+				 * 	1. allow DML on catalog table
 				 * 	2. allow DML on segments
 				 */
 				SetConfigOption("maintenance_mode",         "true", ctx, gucsource);

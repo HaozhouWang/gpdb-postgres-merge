@@ -79,11 +79,11 @@ PyObject   *PLy_interp_globals = NULL;
 static PLyExecutionContext *PLy_execution_contexts = NULL;
 
 /* For GPDB Use: Query cancel supported */
-static cancel_pending_hook_type prev_cancel_pending_hook;
+cancel_pending_hook_type prev_cancel_pending_hook;
 
-static void PLy_handle_cancel_interrupt(void);
+void PLy_handle_cancel_interrupt(void);
 
-static bool PLy_enter_python_intepreter = false;
+bool PLy_enter_python_intepreter = false;
 
 void
 _PG_init(void)
@@ -136,7 +136,7 @@ _PG_init(void)
  * For GPDB Use:
  * Raise a KeyboardInterrupt exception, to simulate a SIGINT.
  */
-static int
+int
 PLy_python_cancel_handler(void *arg)
 {
 	PyErr_SetNone(PyExc_KeyboardInterrupt);
@@ -151,7 +151,7 @@ PLy_python_cancel_handler(void *arg)
  *
  * NB: This is called from a signal handler!
  */
-static void
+void
 PLy_handle_cancel_interrupt(void)
 {
 	/*

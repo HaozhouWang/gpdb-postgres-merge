@@ -14,7 +14,7 @@
 #include "plpy_subxactobject.h"
 
 #include "plpy_elog.h"
-
+#include "plpy_main.h"
 
 List	   *explicit_subtransactions = NIL;
 

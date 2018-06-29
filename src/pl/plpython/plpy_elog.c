@@ -7,6 +7,7 @@
 #include "postgres.h"
 
 #include "lib/stringinfo.h"
+#include "miscadmin.h"
 
 #include "plpython.h"
 
@@ -51,7 +52,7 @@ PLy_elog(int elevel, const char *fmt,...)
 	char	   *hint = NULL;
 	char	   *query = NULL;
 	int			position = 0;
- 
+
 	/*
 	 *  If the error was a KeyboardException that we raised because
 	 *  of query cancellation, then CHECK_FOR_INTERRUPTS() will throw
