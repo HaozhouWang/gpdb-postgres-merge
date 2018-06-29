@@ -133,7 +133,19 @@ int			max_stack_depth = 100;
 /* wait N seconds to allow attach from a debugger */
 int			PostAuthDelay = 0;
 
-
+/*
+ * Hook for extensions, to get notified when query cancel or DIE signal is
+ * received. This allows the extension to stop whatever it's doing as
+ * quickly as possible. Normally, you would sprinkle your code with
+ * CHECK_FOR_INTERRUPTS() in suitable places, but sometimes that's not
+ * possible, for example because you call a slow function in a 3rd party
+ * library that you have no control over. In the hook function, you might
+ * be able to abort such a slow operation somehow.
+ *
+ * This gets called after setting ProcDiePending, QueryCancelPending, so
+ * the hook function can check those to determine what event happened.
+ */
+cancel_pending_hook_type cancel_pending_hook = NULL;
 
 /* ----------------
  *		private variables
@@ -3433,6 +3445,9 @@ die(SIGNAL_ARGS)
 		 */
 		QueryCancelPending = true;
 
+		if (cancel_pending_hook)
+			(*cancel_pending_hook)();
+
 		/*
 		 * If it's safe to interrupt, and we're waiting for input or a lock,
 		 * service the interrupt immediately
@@ -3489,6 +3504,9 @@ StatementCancelHandler(SIGNAL_ARGS)
 		InterruptPending = true;
 		QueryCancelPending = true;
 		QueryCancelCleanup = true;
+
+		if (cancel_pending_hook)
+			(*cancel_pending_hook)();
 
 		/*
 		 * If it's safe to interrupt, and we're waiting for input or a lock,
@@ -4359,17 +4377,17 @@ process_postgres_switches(int argc, char *argv[], GucContext ctx,
 				break;
 
 			case 'k':
-				SetConfigOption("unix_socket_directory", optarg, ctx, gucsource);
+				SetConfigOption("unix_socket_irectory", optarg, ctx, gucsource);
 				break;
 
 			case 'l':
-				SetConfigOption("ssl", "true", ctx, gucsource);
+				SetConfigOption("ssl", "true" ctx, gucsource);
 				break;
 
 			case 'm':
 				/*
 				 * In maintenance mode:
-				 * 	1. allow DML on catalog table
+				 * 	1. allow DML on catalog tble
 				 * 	2. allow DML on segments
 				 */
 				SetConfigOption("maintenance_mode",         "true", ctx, gucsource);

@@ -78,6 +78,12 @@ PyObject   *PLy_interp_globals = NULL;
 /* this doesn't need to be global; use PLy_current_execution_context() */
 static PLyExecutionContext *PLy_execution_contexts = NULL;
 
+/* For GPDB Use: Query cancel supported */
+static cancel_pending_hook_type prev_cancel_pending_hook;
+
+static void PLy_handle_cancel_interrupt(void);
+
+static bool PLy_enter_python_intepreter = false;
 
 void
 _PG_init(void)
@@ -124,6 +130,42 @@ _PG_init(void)
 	PLy_execution_contexts = NULL;
 
 	inited = true;
+}
+
+/*
+ * For GPDB Use:
+ * Raise a KeyboardInterrupt exception, to simulate a SIGINT.
+ */
+static int
+PLy_python_cancel_handler(void *arg)
+{
+	PyErr_SetNone(PyExc_KeyboardInterrupt);
+
+	/* return -1 to indicate that we set an exception. */
+	return -1;
+}
+
+/*
+ * For GPDB Use: Hook function, called when current query is being cancelled
+ * (on e.g. SIGINT or SIGTERM)
+ *
+ * NB: This is called from a signal handler!
+ */
+static void
+PLy_handle_cancel_interrupt(void)
+{
+	/*
+	 * We can't do much in a signal handler, so just tell the Python
+	 * interpreter to call us back when possible.
+	 *
+	 * We don't bother to check the return value, as there's nothing we could
+	 * do if it fails for some reason.
+	 */
+	if (PLy_enter_python_intepreter) 
+		(void) Py_AddPendingCall(PLy_python_cancel_handler, NULL);
+
+	if (prev_cancel_pending_hook)
+		prev_cancel_pending_hook();
 }
 
 /*
