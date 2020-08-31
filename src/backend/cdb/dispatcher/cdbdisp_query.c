@@ -45,6 +45,7 @@
 #include "cdb/cdbdisp_dtx.h"	/* for qdSerializeDtxContextInfo() */
 #include "cdb/cdbdispatchresult.h"
 #include "cdb/cdbcopy.h"
+#include "cdb/cdbksegment.h"
 #include "executor/execUtils.h"
 
 #define QUERY_STRING_TRUNCATE_SIZE (1024)
@@ -1061,6 +1062,10 @@ cdbdisp_dispatchX(QueryDesc* queryDesc,
 	rootIdx = RootSliceIndex(estate);
 
 	ds = cdbdisp_makeDispatcherState(queryDesc->extended_query);
+
+
+    /* Investgate query tree first to find none-seq-scan node */
+    cdbCheckPlannerNode(queryDesc->planstate, sliceTbl->numSlices, rootIdx);
 
 	/*
 	 * Since we intend to execute the plan, inventory the slice tree,
