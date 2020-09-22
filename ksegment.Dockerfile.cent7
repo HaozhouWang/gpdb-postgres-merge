@@ -1,0 +1,10 @@
+FROM pivotaldata/centos-gpdb-dev:7-gcc6.2-llvm3.7
+
+EXPOSE 7000
+
+COPY gpdb_temp /home/gpadmin/gpdb_src
+
+RUN /home/gpadmin/gpdb_src/init.bash
+
+USER gpadmin
+CMD /home/gpadmin/start.sh
