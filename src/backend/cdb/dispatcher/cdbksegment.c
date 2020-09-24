@@ -5,7 +5,7 @@
 
 #include "postgres.h"
 #include "cdb/cdbksegment.h"
-
+#include "cdb/cdbcatalogdispatching.h"
 static CdbVisitOpt SeqScanFinderWalker(PlanState *node, void *context);
 
 List* cdbCheckPlannerNode(PlanState *planstate, int numSlices, int rootIdx){
@@ -21,6 +21,7 @@ List* cdbCheckPlannerNode(PlanState *planstate, int numSlices, int rootIdx){
         }
 	ctx.seq_found = false;
 	ctx.motion_found = false;
+	ctx.catalog.htab = createPrepareDispatchedCatalogRelationDisctinctHashTable();
         motionstate = getMotionState(planstate, i);
         planstate_walk_node(&motionstate->ps, SeqScanFinderWalker, &ctx);
         if (!ctx.seq_found)
@@ -59,6 +60,10 @@ SeqScanFinderWalker(PlanState *node,
 	else if (IsA(node, MotionState))
 	{
 		ctx->motion_found = true;
+	}
+	else if (!IsA(node, MotionState) && ctx->motion_found)
+	{
+		collect_func_walker((Node *)(node->plan), &(ctx->catalog));
 	}
 
 
