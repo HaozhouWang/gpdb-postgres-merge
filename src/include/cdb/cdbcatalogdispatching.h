@@ -35,6 +35,10 @@ typedef struct DispathingCatalogInfoContextHashEntry DispathingCatalogInfoContex
 
 struct DispatchingCatalogInfo
 {
+	char		*buffer;
+	int			size;
+	int			cursor;
+
 	HTAB		*htab;
 	List		*errTblOid;
 };

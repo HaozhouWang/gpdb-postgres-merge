@@ -21,6 +21,8 @@ List* cdbCheckPlannerNode(PlanState *planstate, int numSlices, int rootIdx){
         }
 	ctx.seq_found = false;
 	ctx.motion_found = false;
+	ctx.catalog.cursor = 0;
+	ctx.catalog.size = ctx.catalog.cursor = 0;
 	ctx.catalog.htab = createPrepareDispatchedCatalogRelationDisctinctHashTable();
         motionstate = getMotionState(planstate, i);
         planstate_walk_node(&motionstate->ps, SeqScanFinderWalker, &ctx);
@@ -32,7 +34,8 @@ List* cdbCheckPlannerNode(PlanState *planstate, int numSlices, int rootIdx){
             elog(NOTICE, "seq slice found in slice %d", i);
         }
     }
-
+	if (ctx.catalog.buffer)
+		pfree(ctx.catalog.buffer);
     return noSeqSliceId;
 
 }

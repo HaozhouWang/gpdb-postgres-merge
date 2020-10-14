@@ -42,6 +42,12 @@
 #include "nodes/execnodes.h"
 #include "cdb/cdbcatalogdispatching.h"
 
+enum CatalogDispatchingItemType
+{
+	TupleType, Namespace
+};
+static void
+prepareDispatchedCatalogFunction(DispathingCatalogInfoContext *ctx, Oid procOid);
 static bool
 alreadyAddedForDispatching(HTAB *rels, Oid objid, DispathingCatalogInfoObjType type) {
 	bool found = false;
@@ -73,7 +79,58 @@ createPrepareDispatchedCatalogRelationDisctinctHashTable(void)
 
 	return rels;
 }
+static void
+WriteData(DispathingCatalogInfoContext *ctx, const char *buffer, int size)
+{
 
+    Assert(NULL != ctx);
+    Assert(NULL != buffer);
+    Assert(size > 0);
+
+	if (ctx->cursor + size > ctx->size)
+	{
+		ctx->size = (1 + ctx->size) * 2;
+
+		if (ctx->size < ctx->cursor + size)
+			ctx->size = ctx->cursor + size;
+
+		if (ctx->buffer)
+			ctx->buffer = repalloc(ctx->buffer, ctx->size);
+		else
+			ctx->buffer = palloc(ctx->size);
+	}
+	memcpy(ctx->buffer + ctx->cursor, buffer, size);
+	ctx->cursor += size;
+}
+void
+AddTupleToContextInfo(DispathingCatalogInfoContext *ctx, Oid relid,
+        const char *relname, HeapTuple tuple, int32 contentid)
+{
+    Assert(NULL != ctx);
+    Assert(!ctx->finalized);
+
+    StringInfoData header;
+    initStringInfo(&header);
+
+    int32 tuplen = sizeof(HeapTupleData) + tuple->t_len;
+
+    /* send one byte flag */
+    pq_sendint(&header, TupleType, sizeof(char));
+
+    /* send content length, sizeof(relid) + sizeof(contentid) + tuple */
+    int32 len = sizeof(Oid) + sizeof(int32) + tuplen;
+    pq_sendint(&header, len, sizeof(int32));
+
+    /* send relid */
+    pq_sendint(&header, relid, sizeof(Oid));
+    pq_sendint(&header, contentid, sizeof(int32));
+
+    WriteData(ctx, header.data, header.len);
+    WriteData(ctx, (const char *) tuple, sizeof(HeapTupleData));
+    WriteData(ctx, (const char *) tuple->t_data, tuple->t_len);
+
+    pfree(header.data);
+}
 
 /* For user defined type dispatch the operator class. */
 static void
@@ -130,8 +187,84 @@ prepareDispatchedCatalogType(DispathingCatalogInfoContext *ctx, Oid typeOid)
 	 * operators that might be needed by the executor on the segments.
 	 */
 	prepareDispatchedCatalogOpClassForType(ctx, typeOid);
+	ReleaseSysCache(typetuple);
 }
 
+static void
+prepareDispatchedCatalogLanguage(DispathingCatalogInfoContext *ctx, Oid langOid)
+{
+	HeapTuple langtuple;
+
+	Assert(langOid != InvalidOid);
+
+	/*   
+	 * buildin object, dispatch nothing
+	 */
+	if (langOid < FirstNormalObjectId)
+		return;
+
+	if (alreadyAddedForDispatching(ctx->htab, langOid, LangType))
+		return;
+
+	/* look up the tuple in pg_language */
+	langtuple = SearchSysCache1(LANGOID, ObjectIdGetDatum(langOid));
+
+	if (!HeapTupleIsValid(langtuple))
+		elog(ERROR, "cache lookup failed for lang %u", langOid);				
+
+	//AddTupleWithToastsToContextInfo(ctx, LanguageRelationId, "pg_language", langtuple, MASTER_CONTENT_ID);	
+
+	/* dispatch the language handler function*/
+	bool lang_handler_isNull = false;
+	Datum lang_handler_Datum = SysCacheGetAttr(LANGOID, langtuple, Anum_pg_language_lanplcallfoid, &lang_handler_isNull);
+	if (!lang_handler_isNull && lang_handler_Datum)	
+	{
+		prepareDispatchedCatalogFunction(ctx, DatumGetObjectId(lang_handler_Datum));
+	}
+	ReleaseSysCache(langtuple);
+}
+
+static void
+prepareDispatchedCatalogFunction(DispathingCatalogInfoContext *ctx, Oid procOid)
+{
+	HeapTuple proctuple;
+	Datum datum;
+	Oid oidval;
+	bool isNull = false;
+
+    Assert(procOid != InvalidOid);
+
+    /*   
+     * buildin object, dispatch nothing
+     */
+    if (procOid < FirstNormalObjectId)
+        return;
+
+    if (alreadyAddedForDispatching(ctx->htab, procOid, ProcType))
+        return;
+
+    /* find relid in pg_class */
+    proctuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(procOid));
+    if (!HeapTupleIsValid(proctuple))
+        elog(ERROR, "cache lookup failed for proc %u", procOid);
+
+	datum = SysCacheGetAttr(PROCOID, proctuple, Anum_pg_proc_prolang, &isNull);
+	if (!isNull && datum)
+	{
+		oidval = DatumGetObjectId(datum);
+		prepareDispatchedCatalogLanguage(ctx, oidval);
+	}
+
+	datum = SysCacheGetAttr(PROCOID, proctuple, Anum_pg_proc_prorettype, &isNull);
+	if (!isNull && datum)
+	{
+		oidval = DatumGetObjectId(datum);
+		prepareDispatchedCatalogType(ctx, oidval);
+	}
+
+	AddTupleToContextInfo(ctx, ProcedureRelationId, "pg_proc", proctuple, MASTER_CONTENT_ID);
+	ReleaseSysCache(proctuple);
+}
 
 bool collect_func_walker(Node *node, DispathingCatalogInfoContext *context)
 {
@@ -161,6 +294,22 @@ bool collect_func_walker(Node *node, DispathingCatalogInfoContext *context)
 	}
 	//TODO Row expr
 	//TODO Function node
+	if (IsA(node, FuncExpr))
+	{
+		FuncExpr *func = (FuncExpr *) node;
+		AclMode needAcl = ACL_NO_RIGHTS;
+		if(func->funcid > FirstNormalObjectId)
+		{
+			/* do aclcheck on master, because HAWQ segments lacks user knowledge */
+			AclResult aclresult;
+			aclresult = pg_proc_aclcheck(func->funcid, GetUserId(), ACL_EXECUTE);
+			if (aclresult != ACLCHECK_OK)
+				aclcheck_error(aclresult, OBJECT_FUNCTION, get_func_name(func->funcid));
+
+			/* build the dispacth for the function itself */
+			prepareDispatchedCatalogFunction(context, func->funcid);
+		}
+	}
 	//TODO Aggregation Node
 	//TODO window function
 	//TODO Op node
